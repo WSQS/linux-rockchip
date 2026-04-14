@@ -15,17 +15,6 @@ menuconfig COMPASS_DEVICE
 
 if COMPASS_DEVICE
 
-config COMPASS_AK8975
-  tristate "Asahi Kasei AK8975 3-Axis Magnetometer"
-  depends on I2C
-  default n
-  help
-  Say yes here to build support for Asahi Kasei AK8975 3-Axis
-  Magnetometer.
-
-  To compile this driver as a module, choose M here: the module
-  will be called ak8975.
-
 config COMPASS_AK8963
   tristate "Asahi Kasei AK8963 3-Axis Magnetometer"
   depends on I2C
