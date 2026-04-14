@@ -1072,8 +1072,6 @@ static int fts_read_file(char *file_name, u8 **file_buf)
     int ret = 0;
     char file_path[FILE_NAME_LENGTH] = { 0 };
     struct file *filp = NULL;
-    struct inode *inode;
-    mm_segment_t old_fs;
     loff_t pos;
     loff_t file_len = 0;
 
@@ -1082,39 +1080,55 @@ static int fts_read_file(char *file_name, u8 **file_buf)
         return -EINVAL;
     }
 
+    *file_buf = NULL;
+
     snprintf(file_path, FILE_NAME_LENGTH, "%s%s", FTS_FW_BIN_FILEPATH, file_name);
     filp = filp_open(file_path, O_RDONLY, 0);
     if (IS_ERR(filp)) {
         FTS_ERROR("open %s file fail", file_path);
-        return -ENOENT;
+        return PTR_ERR(filp);
     }
 
-#if 1
-    inode = filp->f_inode;
-#else
-    /* reserved for linux earlier verion */
-    inode = filp->f_dentry->d_inode;
-#endif
+    file_len = i_size_read(file_inode(filp));
+    if (file_len <= 0) {
+        FTS_ERROR("invalid file size: %lld", file_len);
+        ret = -EINVAL;
+        goto err_close;
+    }
 
-    file_len = inode->i_size;
     *file_buf = (u8 *)vmalloc(file_len);
     if (NULL == *file_buf) {
         FTS_ERROR("file buf malloc fail");
-        filp_close(filp, NULL);
-        return -ENOMEM;
+        ret = -ENOMEM;
+        goto err_close;
     }
-    old_fs = get_fs();
-    set_fs(KERNEL_DS);
-    pos = 0;
-    ret = vfs_read(filp, *file_buf, file_len , &pos);
-    if (ret < 0)
-        FTS_ERROR("read file fail");
-    FTS_INFO("file len:%d read len:%d pos:%d", (u32)file_len, ret, (u32)pos);
-    filp_close(filp, NULL);
-    set_fs(old_fs);
 
+    ret = kernel_read(filp, *file_buf, file_len, &pos);
+    if (ret < 0) {
+        FTS_ERROR("read file fail, ret=%d", ret);
+        goto err_free;
+    }
+
+    if (ret != file_len) {
+        FTS_ERROR("short read, file len:%lld read len:%d", file_len, ret);
+        ret = -EIO;
+        goto err_free;
+    }
+
+    FTS_INFO("file len:%u read len:%d pos:%u",
+             (u32)file_len, ret, (u32)pos);
+
+    filp_close(filp, NULL);
+    return ret;
+
+err_free:
+    vfree(*file_buf);
+    *file_buf = NULL;
+err_close:
+    filp_close(filp, NULL);
     return ret;
 }
+
 
 /************************************************************************
 * Name: fts_upgrade_bin
